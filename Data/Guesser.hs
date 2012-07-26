@@ -22,14 +22,16 @@ import qualified Data.CRF.Codec as Codec
 import qualified Data.CRF.Word as CRF
 import qualified Data.CRF.R as CRF
 import qualified Data.RCRF as CRF
+import qualified Data.CRF.RCRF.Model as CRF -- ^ TODO: delete it! 
 import Data.CRF.FeatSel.Hidden (hiddenFeats)
 
 import qualified Data.Morphosyntax as M
-import qualified Data.Schema as Ox
-
 import Data.Morphosyntax.Tagset (Tag(Tag))
 import Text.Morphosyntax.Tagset (parseTagset)
 import Text.Morphosyntax.Plain (parsePlain)
+
+import qualified Data.Schema as Ox
+import qualified Data.Feature as Ox
 
 import qualified SGD as SGD
 
@@ -38,7 +40,20 @@ type Schema = Ox.Schema M.Word
 -- | At the moment only this schema can be used.
 -- TODO: Move to Data.Guesser.Schema module.
 schema :: Schema
-schema = undefined
+schema sent = \k ->
+    [ Ox.prefix 1 $ orth k
+    , Ox.prefix 2 $ orth k
+    , Ox.prefix 3 $ orth k
+    , Ox.suffix 1 $ orth k
+    , Ox.suffix 2 $ orth k
+    , Ox.suffix 3 $ orth k
+    , Ox.known sent k
+    , shape k
+    , packedShape k ]
+  where
+    orth = Ox.orth sent
+    shape = Ox.shape . orth
+    packedShape = Ox.pack . shape
 
 data Guesser = Guesser
     { crf       :: CRF.Model
@@ -88,16 +103,17 @@ learn sgdArgs tagsetPath trainPath evalPath = do
     lbNum <- S.size . S.fromList . collectLbs <$> readData trainPath
     let lbSet  = U.fromList [0 .. lbNum - 1]
 
-    -- | FIXME: should "ign" be used as an unknown tag?
-    let ign = Tag "ign" Map.empty
-    codec <- Codec.mkCodec ign . concat <$> readTrain
+    -- | FIXME: should be "unknown" or "ign" used as an unknown tag?
+    -- let ign = Tag "unknown" Map.empty
+    -- codec <- Codec.mkCodec ign . concat <$> readTrain
+    codec <- Codec.mkCodec . concat <$> readTrain
 
     trainData <- V.fromList <$> map (CRF.encodeSent' lbSet codec) <$> readTrain
     evalData  <- V.fromList <$> map (CRF.encodeSent' lbSet codec) <$>
         if null evalPath
             then return []
             else readEval
-    
+
     let crf = CRF.mkModel (hiddenFeats trainData)
     crf' <- SGD.sgd sgdArgs trainData evalData crf
     return $ Guesser crf' codec lbSet
