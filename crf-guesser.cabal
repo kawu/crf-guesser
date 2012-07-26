@@ -1,0 +1,19 @@
+Name:               crf-guesser
+Version:            0.0.1
+Synopsis:           Morphosyntactic guesser using crf library.
+License:            BSD3
+License-file:       LICENSE
+Author:             Jakub Waszczuk
+Maintainer:         waszczuk.kuba@gmail.com
+Build-type:         Simple
+Exposed-modules:    Data.Guesser
+Build-Depends:      base
+                  , containers
+                  , vector
+                  , binary
+                  , listlike-instances
+		  , text
+                  , morphosyntax
+                  , language-features
+                  , sgd
+                  , crf
