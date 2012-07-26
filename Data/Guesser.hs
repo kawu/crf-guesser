@@ -23,7 +23,9 @@ import qualified Data.CRF.Word as CRF
 import qualified Data.CRF.R as CRF
 import qualified Data.RCRF as CRF
 import qualified Data.CRF.RCRF.Model as CRF -- ^ TODO: delete it! 
-import Data.CRF.FeatSel.Hidden (hiddenFeats)
+
+import qualified Data.CRF.FeatSel.Present as Ft
+import qualified Data.CRF.FeatSel.Hidden as Ft
 
 import qualified Data.Morphosyntax as M
 import Data.Morphosyntax.Tagset (Tag(Tag))
@@ -114,7 +116,10 @@ learn sgdArgs tagsetPath trainPath evalPath = do
             then return []
             else readEval
 
-    let crf = CRF.mkModel (hiddenFeats trainData)
+    let fts = Ft.presentOFeats trainData
+           ++ Ft.hiddenSFeats  trainData
+           ++ Ft.hiddenTFeats  trainData
+    let crf = CRF.mkModel fts
     crf' <- SGD.sgd sgdArgs trainData evalData crf
     return $ Guesser crf' codec lbSet
 
