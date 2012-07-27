@@ -21,8 +21,8 @@ import Data.ListLike.Vector
 import qualified Data.CRF.Codec as Codec
 import qualified Data.CRF.Word as CRF
 import qualified Data.CRF.R as CRF
-import qualified Data.RCRF as CRF
-import qualified Data.CRF.RCRF.Model as CRF -- ^ TODO: delete it! 
+import qualified Data.RCRF2 as CRF
+import qualified Data.CRF.RCRF2.Model as CRF -- ^ TODO: delete it! 
 
 import qualified Data.CRF.FeatSel.Present as Ft
 import qualified Data.CRF.FeatSel.Hidden as Ft
@@ -45,15 +45,15 @@ schema :: Schema
 schema sent = \k ->
     [ Ox.prefix 1 $ orth k
     , Ox.prefix 2 $ orth k
-    , Ox.prefix 3 $ orth k
+    -- , Ox.prefix 3 $ orth k
     , Ox.suffix 1 $ orth k
     , Ox.suffix 2 $ orth k
-    , Ox.suffix 3 $ orth k
+    -- , Ox.suffix 3 $ orth k
     , Ox.known sent k
-    , shape k
-    , packedShape k ]
+    -- , shape k
+    , Ox.join "-" (Ox.isBeg sent k) (packedShape k) ]
   where
-    orth = Ox.orth sent
+    orth = Ox.lowerOrth sent
     shape = Ox.shape . orth
     packedShape = Ox.pack . shape
 
@@ -117,9 +117,9 @@ learn sgdArgs tagsetPath trainPath evalPath = do
             else readEval
 
     let fts = Ft.presentOFeats trainData
-           ++ Ft.hiddenSFeats  trainData
-           ++ Ft.hiddenTFeats  trainData
-    let crf = CRF.mkModel fts
+           ++ Ft.presentSFeats trainData
+           ++ Ft.presentTFeats trainData
+    let crf = CRF.mkModel lbNum fts
     crf' <- SGD.sgd sgdArgs trainData evalData crf
     return $ Guesser crf' codec lbSet
 
