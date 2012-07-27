@@ -19,8 +19,9 @@ import qualified Data.Text.Lazy.IO as L
 import Data.ListLike.Vector
 
 import qualified Data.CRF.Codec as Codec
-import qualified Data.CRF.Word as CRF
+import qualified Data.CRF.Word as Word
 import qualified Data.CRF.R as CRF
+import qualified Data.CRF.Y as CRF
 import qualified Data.RCRF2 as CRF
 import qualified Data.CRF.RCRF2.Model as CRF -- ^ TODO: delete it! 
 
@@ -102,13 +103,17 @@ learn sgdArgs tagsetPath trainPath evalPath = do
     let readTrain = map schematize <$> readData trainPath
     let readEval  = map schematize <$> readData evalPath
 
-    lbNum <- S.size . S.fromList . collectLbs <$> readData trainPath
-    let lbSet  = U.fromList [0 .. lbNum - 1]
+--     lbSet <- U.fromList . S.toList . S.fromList . collectLbs
+-- 	 <$> readData trainPath
 
-    -- | FIXME: should be "unknown" or "ign" used as an unknown tag?
-    -- let ign = Tag "unknown" Map.empty
-    -- codec <- Codec.mkCodec ign . concat <$> readTrain
-    codec <- Codec.mkCodec . concat <$> readTrain
+    -- | TODO: There should be stronger consistency between CRF
+    -- codec and CRF model...
+    let ign = Tag "unknown" Map.empty
+    codec <- Codec.mkCodec ign . concat <$> readTrain
+
+    lbSet <- unknownLbs . map (CRF.encodeSent codec) <$> readTrain
+    putStrLn $ show (U.length lbSet) ++ " tags assigned to unknown words:"
+    print (U.toList lbSet)
 
     trainData <- V.fromList <$> map (CRF.encodeSent' lbSet codec) <$> readTrain
     evalData  <- V.fromList <$> map (CRF.encodeSent' lbSet codec) <$>
@@ -116,30 +121,51 @@ learn sgdArgs tagsetPath trainPath evalPath = do
             then return []
             else readEval
 
+    lbNum <- U.length . hiddenLbs . map (CRF.encodeSent codec) <$> readTrain
     let fts = Ft.presentOFeats trainData
            ++ Ft.presentSFeats trainData
            ++ Ft.presentTFeats trainData
-    let crf = CRF.mkModel lbNum fts
+    let crf = CRF.mkModel (lbNum+1) fts
     crf' <- SGD.sgd sgdArgs trainData evalData crf
     return $ Guesser crf' codec lbSet
 
-collectLbs :: [M.SentMlt] -> [M.Tag]
-collectLbs =
-    concatMap sentLbs
+unknownLbs :: [(CRF.Rs, CRF.Ys)] -> U.Vector CRF.Lb
+unknownLbs =
+    U.fromList . nub . concatMap sentLbs
   where
-    sentLbs sent = concat
-        [ map (M.tag . fst) choice ++
-          map M.tag (M.interps word)
-        | (word, choice) <- sent ]
+    sentLbs (rs, ys) = concat
+        [ if null (CRF.lbs r)
+            then map fst (CRF.choice y)
+            else []
+        | (r, y) <- zip (V.toList rs) (V.toList ys) ]
+    nub = S.toList . S.fromList
 
-schematize :: M.SentMlt -> [CRF.Word L.Text M.Tag]
+hiddenLbs :: [(CRF.Rs, CRF.Ys)] -> U.Vector CRF.Lb
+hiddenLbs =
+    U.fromList . nub . concatMap sentLbs
+  where
+    sentLbs (rs, ys) = concat
+        [ map fst (CRF.choice y) ++ CRF.lbs r
+        | (r, y) <- zip (V.toList rs) (V.toList ys) ]
+    nub = S.toList . S.fromList
+
+-- collectLbs :: [M.SentMlt] -> [M.Tag]
+-- collectLbs =
+--     concatMap sentLbs
+--   where
+--     sentLbs sent = concat
+--         [ map (M.tag . fst) choice ++
+--           map M.tag (M.interps word)
+--         | (word, choice) <- sent ]
+
+schematize :: M.SentMlt -> [Word.Word L.Text M.Tag]
 schematize sent = map (fmap M.tag)
-    [ CRF.Word obs (M.interps word) choice
+    [ Word.Word obs (M.interps word) choice
     | (obs, word, choice) <- zip3 schemed xs ys ]
   where
     schemed = Ox.runSchema schema (V.fromList xs)
     xs = map fst sent
     ys = map snd sent
 
-schematize' :: M.Sent -> [CRF.Word L.Text M.Tag]
+schematize' :: M.Sent -> [Word.Word L.Text M.Tag]
 schematize' sent = schematize [(word, []) | word <- sent]
