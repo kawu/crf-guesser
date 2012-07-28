@@ -5,11 +5,13 @@
 module Data.Guesser
 ( Guesser (..)
 , guess
+, tagFile
 , learn
 ) where
 
 import Control.Applicative ((<$>), (<*>))
-import Data.Binary (Binary, put, get)
+import Control.Monad (forM_)
+import Data.Binary (Binary, put, get, decodeFile)
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector as V
 import qualified Data.Set as S
@@ -31,7 +33,7 @@ import qualified Data.CRF.FeatSel.Hidden as Ft
 import qualified Data.Morphosyntax as M
 import Data.Morphosyntax.Tagset (Tag(Tag))
 import Text.Morphosyntax.Tagset (parseTagset)
-import Text.Morphosyntax.Plain (parsePlain)
+import Text.Morphosyntax.Plain (parsePlain, showPlain)
 
 import qualified Data.Schema as Ox
 import qualified Data.Feature as Ox
@@ -76,22 +78,39 @@ instance Binary Guesser where
     put Guesser{..} = sequence_ [put crf, put codec, put labels]
     get = Guesser <$> get <*> get <*> get
 
-guess :: Guesser -> M.Sent -> M.Sent
-guess Guesser{..} sent =
+guess :: Int -> Guesser -> M.Sent -> M.Sent
+guess k Guesser{..} sent =
     apply choices sent
   where
     encoded = fst $ CRF.encodeSent' labels codec $ schematize' sent
-    choices = map (CRF.decodeL codec) $ CRF.tag crf encoded
+    decodeChoice = map (CRF.decodeL codec . fst)
+    choices = map decodeChoice $ CRF.tagK k crf encoded
     apply choices sent =
         [ if null (M.interps word)
-            then word { M.interps = [M.Interp "None" disamb] }
+            then word { M.interps = map (M.Interp "None") choice }
             else word
-        | (word, disamb) <- zip sent choices ]
+        | (word, choice) <- zip sent choices ]
+
+tagFile
+    :: Int              -- ^ Guesser argument
+    -> Guesser          -- ^ Guesser itself
+    -> FilePath         -- ^ Tagset file
+    -> FilePath         -- ^ File to tag (plain format)
+    -> IO ()
+tagFile k guesser tagsetPath inPath = do
+    tagset <- parseTagset tagsetPath <$> readFile tagsetPath
+    input <- parsePlain tagset <$> L.readFile inPath
+    L.putStr $ showPlain tagset $ map doGuess input
+  where
+    doGuess sent =
+        let xs = map fst sent
+            ys = map snd sent
+        in  zip (guess k guesser xs) ys
 
 -- | TODO: Abstract over format type.
 learn
     :: SGD.SgdArgs      -- ^ SGD parameters 
-    -> FilePath         -- ^ Tagset file (plain format)
+    -> FilePath         -- ^ Tagset file
     -> FilePath         -- ^ Train file  (plain format)
     -> FilePath         -- ^ Eval file (maybe null) 
     -> IO Guesser
