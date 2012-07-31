@@ -143,6 +143,7 @@ learn sgdArgs tagsetPath trainPath evalPath = do
             then return []
             else map schematize <$> readData evalPath
 
+    -- | FIXME: Is there a need to compute this again (see Codec.lbNum above).
     lbNum <- length . nub . concatMap hiddenLbs <$> readData trainPath
     let fts = Ft.presentOFeats trainData
            ++ Ft.presentSFeats trainData
@@ -165,12 +166,15 @@ hiddenLbs sent = map M.tag $ concat
 
 schematize :: M.SentMlt -> [Word.Word L.Text M.Tag]
 schematize sent = map (Word.rmDups . fmap M.tag)
-    [ Word.Word obs (M.interps word) choice
+    [ Word.Word obs (lbs word) choice
     | (obs, word, choice) <- zip3 schemed xs ys ]
   where
     schemed = Ox.runSchema schema (V.fromList xs)
     xs = map fst sent
     ys = map snd sent
+    lbs word
+        | M.known word = M.interps word
+        | otherwise = []
 
 schematize' :: M.Sent -> [Word.Word L.Text M.Tag]
 schematize' sent = schematize [(word, []) | word <- sent]
