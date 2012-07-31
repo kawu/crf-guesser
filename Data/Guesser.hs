@@ -11,6 +11,8 @@ module Data.Guesser
 
 import Control.Applicative ((<$>), (<*>))
 import Control.Monad (forM_)
+import Data.List (sort)
+import Data.Maybe (fromJust)
 import Data.Binary (Binary, put, get, decodeFile)
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector as V
@@ -129,8 +131,12 @@ learn sgdArgs tagsetPath trainPath evalPath = do
     -- codec and CRF model...
     let ign = Tag "unknown" Map.empty
     codec <- Codec.mkCodec ign . concat <$> readTrain
+    putStrLn $ "labels number: " ++ show (Codec.lbNum codec)
+    putStrLn $ "observations number: " ++ show (Codec.obNum codec)
 
-    lbSet <- unknownLbs . map (CRF.encodeSent codec) <$> readTrain
+    let nub = S.toList . S.fromList
+    lbSet' <- nub . concatMap unknownLbs <$> readData trainPath
+    let lbSet = U.fromList $ sort $ map (fromJust . Codec.encodeL codec) lbSet'
     putStrLn $ show (U.length lbSet) ++ " tags assigned to unknown words:"
     print (U.toList lbSet)
 
@@ -140,7 +146,7 @@ learn sgdArgs tagsetPath trainPath evalPath = do
             then return []
             else readEval
 
-    lbNum <- U.length . hiddenLbs . map (CRF.encodeSent codec) <$> readTrain
+    lbNum <- length . nub . concatMap hiddenLbs <$> readData trainPath
     let fts = Ft.presentOFeats trainData
            ++ Ft.presentSFeats trainData
            ++ Ft.presentTFeats trainData
@@ -148,35 +154,19 @@ learn sgdArgs tagsetPath trainPath evalPath = do
     crf' <- SGD.sgd sgdArgs trainData evalData crf
     return $ Guesser crf' codec lbSet
 
-unknownLbs :: [(CRF.Rs, CRF.Ys)] -> U.Vector CRF.Lb
-unknownLbs =
-    U.fromList . nub . concatMap sentLbs
-  where
-    sentLbs (rs, ys) = concat
-        [ if null (CRF.lbs r)
-            then map fst (CRF.choice y)
-            else []
-        | (r, y) <- zip (V.toList rs) (V.toList ys) ]
-    nub = S.toList . S.fromList
+unknownLbs :: M.SentMlt -> [M.Tag]
+unknownLbs sent = concat
+    [ if M.known word
+        then []
+        else map (M.tag . fst) choice
+    | (word, choice) <- sent ]
 
-hiddenLbs :: [(CRF.Rs, CRF.Ys)] -> U.Vector CRF.Lb
-hiddenLbs =
-    U.fromList . nub . concatMap sentLbs
-  where
-    sentLbs (rs, ys) = concat
-        [ map fst (CRF.choice y) ++ CRF.lbs r
-        | (r, y) <- zip (V.toList rs) (V.toList ys) ]
-    nub = S.toList . S.fromList
+hiddenLbs :: M.SentMlt -> [M.Tag]
+hiddenLbs sent = map M.tag $ concat
+    [ map fst choice ++ M.interps word
+    | (word, choice) <- sent ]
 
--- collectLbs :: [M.SentMlt] -> [M.Tag]
--- collectLbs =
---     concatMap sentLbs
---   where
---     sentLbs sent = concat
---         [ map (M.tag . fst) choice ++
---           map M.tag (M.interps word)
---         | (word, choice) <- sent ]
-
+-- | FIXME: Handle the case, when choice has duplicate tags.  
 schematize :: M.SentMlt -> [Word.Word L.Text M.Tag]
 schematize sent = map (fmap M.tag)
     [ Word.Word obs (M.interps word) choice
