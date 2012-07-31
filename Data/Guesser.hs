@@ -88,7 +88,7 @@ guess k Guesser{..} sent =
     decodeChoice = map (CRF.decodeL codec . fst)
     choices = map decodeChoice $ CRF.tagK k crf encoded
     apply choices sent =
-        [ if null (M.interps word)
+        [ if (not . M.known) word
             then word { M.interps = map (M.Interp "None") choice }
             else word
         | (word, choice) <- zip sent choices ]
@@ -121,16 +121,12 @@ learn sgdArgs tagsetPath trainPath evalPath = do
     tagset <- parseTagset tagsetPath <$> readFile tagsetPath
 
     let readData path = parsePlain tagset <$> L.readFile path
-    let readTrain = map schematize <$> readData trainPath
-    let readEval  = map schematize <$> readData evalPath
-
---     lbSet <- U.fromList . S.toList . S.fromList . collectLbs
--- 	 <$> readData trainPath
+    let schemaTrain = map schematize <$> readData trainPath
 
     -- | TODO: There should be stronger consistency between CRF
     -- codec and CRF model...
     let ign = Tag "unknown" Map.empty
-    codec <- Codec.mkCodec ign . concat <$> readTrain
+    codec <- Codec.mkCodec ign . concat <$> schemaTrain
     putStrLn $ "labels number: " ++ show (Codec.lbNum codec)
     putStrLn $ "observations number: " ++ show (Codec.obNum codec)
 
@@ -140,11 +136,12 @@ learn sgdArgs tagsetPath trainPath evalPath = do
     putStrLn $ show (U.length lbSet) ++ " tags assigned to unknown words:"
     print (U.toList lbSet)
 
-    trainData <- V.fromList <$> map (CRF.encodeSent' lbSet codec) <$> readTrain
+    trainData <- V.fromList <$> map (CRF.encodeSent' lbSet codec) <$>
+        schemaTrain
     evalData  <- V.fromList <$> map (CRF.encodeSent' lbSet codec) <$>
         if null evalPath
             then return []
-            else readEval
+            else map schematize <$> readData evalPath
 
     lbNum <- length . nub . concatMap hiddenLbs <$> readData trainPath
     let fts = Ft.presentOFeats trainData
@@ -166,9 +163,8 @@ hiddenLbs sent = map M.tag $ concat
     [ map fst choice ++ M.interps word
     | (word, choice) <- sent ]
 
--- | FIXME: Handle the case, when choice has duplicate tags.  
 schematize :: M.SentMlt -> [Word.Word L.Text M.Tag]
-schematize sent = map (fmap M.tag)
+schematize sent = map (Word.rmDups . fmap M.tag)
     [ Word.Word obs (M.interps word) choice
     | (obs, word, choice) <- zip3 schemed xs ys ]
   where
