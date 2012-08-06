@@ -48,19 +48,22 @@ type Schema = Ox.Schema M.Word
 -- TODO: Move to Data.Guesser.Schema module.
 schema :: Schema
 schema sent = \k ->
-    [ Ox.prefix 1 $ orth k
-    , Ox.prefix 2 $ orth k
-    -- , Ox.prefix 3 $ orth k
-    , Ox.suffix 1 $ orth k
-    , Ox.suffix 2 $ orth k
-    -- , Ox.suffix 3 $ orth k
-    , Ox.known sent k
-    -- , shape k
-    , Ox.join "-" (Ox.isBeg sent k) (packedShape k) ]
+    [ Ox.prefix 1 $ lowOrth `at` k
+    , Ox.prefix 2 $ lowOrth `at` k
+    , Ox.suffix 1 $ lowOrth `at` k
+    , Ox.suffix 2 $ lowOrth `at` k
+    , known `at` k
+    , Ox.join "-" (isBeg k) (packedShape `at` k) ]
   where
-    orth = Ox.lowerOrth sent
+    at  = Ox.at sent
+    orth  = (:[]) . M.orth
+    lowOrth = map L.toLower . orth
     shape = Ox.shape . orth
     packedShape = Ox.pack . shape
+    known       = boolF . M.known
+    isBeg k     = boolF (k == 0)
+    boolF True  = ["T"]
+    boolF False = ["F"]
 
 data Guesser = Guesser
     { crf       :: CRF.Model
@@ -93,6 +96,7 @@ guess k Guesser{..} sent =
             else word
         | (word, choice) <- zip sent choices ]
 
+-- | FIXME: Tagset should be stored together with a guesser.
 tagFile
     :: Int              -- ^ Guesser argument
     -> Guesser          -- ^ Guesser itself
